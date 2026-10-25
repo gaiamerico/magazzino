@@ -61,6 +61,17 @@ Se Home Assistant gira in Docker o in una VM, il server Node va avviato su macOS
 2. Tocca **Condividi → Aggiungi a Home**: l'app si aprirà a schermo intero come un'app nativa.
 3. Se hai impostato `APP_PIN`, l'iPad lo chiede la prima volta e poi lo ricorda.
 
+## Controllo configurazione
+
+Apri `/api/proxy?p=stato` (es. `https://tuo-progetto.vercel.app/api/proxy?p=stato` oppure `http://nome-mac.local:3000/api/proxy?p=stato`). La pagina mostra, senza rivelare segreti:
+
+- se `SUPABASE_URL` è impostato;
+- che tipo di chiave hai messo (serve `sb_secret_...` o `service_role`);
+- se il PIN è attivo e quanti caratteri ha;
+- il risultato di una prova di collegamento a Supabase.
+
+Su Vercel, dopo aver cambiato una variabile, serve un nuovo deploy (Deployments → ⋯ → Redeploy).
+
 ## Modalità demo
 
 Se il server non ha la configurazione di Supabase (o apri `public/index.html` direttamente), l'app parte in **modalità DEMO**: mostra un badge arancione e usa dati di esempio salvati sull'iPad. Utile per provare l'interfaccia prima di configurare Supabase.

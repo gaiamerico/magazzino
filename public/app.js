@@ -243,7 +243,7 @@
         backend = serverBackend;
         return reload();
       }
-      if (err.status === 401) {
+      if (err.status === 401 && err.data && err.data.pin) {
         var giaProvato = !!(memPin || storeGet('pin'));
         var pin = window.prompt(giaProvato ? 'PIN errato, riprova' : 'Inserisci il PIN del magazzino');
         if (pin !== null && pin.replace(/\s+/g, '') !== '') {
@@ -262,7 +262,8 @@
         if (err.status !== 503 && err.status !== 404) toast('Server non raggiungibile: modalità demo', true);
         return reload();
       }
-      $('content').innerHTML = '<div class="empty">Errore: ' + esc(err.message) +
+      var msg = err.status === 401 ? 'Accesso negato dal server (su Vercel controlla Deployment Protection)' : err.message;
+      $('content').innerHTML = '<div class="empty">Errore: ' + esc(msg) +
         '<br><br><button class="btn btn-primary" data-action="riprova">Riprova</button></div>';
     });
   }
