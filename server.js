@@ -11,8 +11,11 @@ const { forward } = require('./lib/forward');
 const envFile = path.join(__dirname, '.env');
 if (fs.existsSync(envFile)) {
   fs.readFileSync(envFile, 'utf8').split(/\r?\n/).forEach((line) => {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=(.*)$/);
+    if (!m || process.env[m[1]]) return;
+    // toglie spazi, commenti a fine riga ("1234  # pin") e virgolette
+    const val = m[2].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '');
+    process.env[m[1]] = val;
   });
 }
 
@@ -68,5 +71,6 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   const mode = process.env.SUPABASE_URL ? 'Supabase' : 'DEMO (Supabase non configurato)';
-  console.log('Magazzino in ascolto su http://0.0.0.0:' + PORT + '  -  modalità: ' + mode);
+  console.log('Magazzino in ascolto su http://0.0.0.0:' + PORT + '  -  modalità: ' + mode +
+    (process.env.APP_PIN ? '  -  PIN attivo (' + String(process.env.APP_PIN).trim().length + ' cifre)' : '  -  nessun PIN'));
 });

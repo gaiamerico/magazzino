@@ -23,6 +23,7 @@
     busy: false
   };
   var backend = null;
+  var memPin = null; // copia in memoria: su iOS 9 in navigazione privata localStorage non salva
 
   /* ---------- utilità ---------- */
 
@@ -88,7 +89,7 @@
     var xhr = new XMLHttpRequest();
     xhr.open(method, API + '?p=' + encodeURIComponent(path) + '&t=' + Date.now(), true);
     xhr.setRequestHeader('Content-Type', 'application/json');
-    var pin = storeGet('pin');
+    var pin = memPin || storeGet('pin');
     if (pin) xhr.setRequestHeader('X-App-Pin', pin);
     xhr.timeout = 15000;
     xhr.onreadystatechange = function () {
@@ -243,10 +244,19 @@
         return reload();
       }
       if (err.status === 401) {
-        var pin = window.prompt('Inserisci il PIN del magazzino');
-        if (pin !== null) { storeSet('pin', pin); return start(); }
+        var giaProvato = !!(memPin || storeGet('pin'));
+        var pin = window.prompt(giaProvato ? 'PIN errato, riprova' : 'Inserisci il PIN del magazzino');
+        if (pin !== null && pin.replace(/\s+/g, '') !== '') {
+          memPin = pin.replace(/\s+/g, '');
+          storeSet('pin', memPin);
+          return start();
+        }
+        // Annullato: niente modalità demo, altrimenti si lavorerebbe su dati finti
+        $('content').innerHTML = '<div class="empty">Serve il PIN per aprire il magazzino.' +
+          '<br><br><button class="btn btn-primary" data-action="riprova">Inserisci PIN</button></div>';
+        return;
       }
-      if (err.status === 503 || err.status === 404 || err.status === 0 || err.status === 401) {
+      if (err.status === 503 || err.status === 404 || err.status === 0) {
         backend = demoBackend;
         $('badge-demo').className = 'badge';
         if (err.status !== 503 && err.status !== 404) toast('Server non raggiungibile: modalità demo', true);
