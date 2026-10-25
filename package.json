@@ -1,0 +1,12 @@
+{
+  "name": "magazzino",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gestione magazzino (carico/scarico) per iPad iOS 9 con Supabase",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

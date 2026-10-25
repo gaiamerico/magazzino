@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Avvia il server all'accensione del Mac e lo riavvia se si chiude.
+     Sostituisci TUO_UTENTE e controlla il percorso di node con: which node -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>it.magazzino.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/TUO_UTENTE/magazzino/server.js</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/TUO_UTENTE/magazzino</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/magazzino.log</string>
+  <key>StandardErrorPath</key><string>/tmp/magazzino.log</string>
+</dict>
+</plist>

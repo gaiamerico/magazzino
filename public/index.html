@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Magazzino">
+  <meta name="format-detection" content="telephone=no">
+  <title>Magazzino</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="header">
+    <div class="brand">Magazzino <span id="badge-demo" class="badge hidden">DEMO</span></div>
+    <div class="tabs">
+      <button class="tab on" data-action="tab" data-tab="giacenze">Giacenze</button>
+      <button class="tab" data-action="tab" data-tab="movimenti">Movimenti</button>
+    </div>
+    <button class="btn btn-primary" data-action="nuovo">+ Articolo</button>
+  </div>
+
+  <div id="toolbar"></div>
+  <div id="content"><div class="empty">Caricamento…</div></div>
+
+  <div id="modal" class="hidden"></div>
+  <div id="toast" class="hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
