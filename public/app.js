@@ -86,12 +86,16 @@
   /* ---------- backend Supabase (via proxy) ---------- */
 
   function request(method, path, body, cb) {
+    return xhrJson(method, API + '?p=' + encodeURIComponent(path) + '&t=' + Date.now(), body, 15000, cb);
+  }
+
+  function xhrJson(method, url, body, timeout, cb) {
     var xhr = new XMLHttpRequest();
-    xhr.open(method, API + '?p=' + encodeURIComponent(path) + '&t=' + Date.now(), true);
+    xhr.open(method, url, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
     var pin = memPin || storeGet('pin');
     if (pin) xhr.setRequestHeader('X-App-Pin', pin);
-    xhr.timeout = 15000;
+    xhr.timeout = timeout;
     xhr.onreadystatechange = function () {
       if (xhr.readyState !== 4) return;
       var data = null;
@@ -102,6 +106,7 @@
       cb({ status: xhr.status, message: msg, data: data });
     };
     xhr.send(body ? JSON.stringify(body) : null);
+    return xhr;
   }
 
   var serverBackend = {
@@ -538,12 +543,227 @@
   }
 
   function chiudiModale() {
+    fotoToken++;
+    if (fotoXhr) { try { fotoXhr.abort(); } catch (e) { /* già chiusa */ } fotoXhr = null; }
     state.modal = null;
     $('modal').className = 'hidden';
     $('modal').innerHTML = '';
   }
 
   function occupato(b) { state.busy = b; }
+
+  /* ---------- foto: acquisizione e riconoscimento con Gemini ---------- */
+
+  var MAX_LATO = 1024;      // lato massimo della foto inviata (l'iPad mini ha 512 MB di RAM)
+  var fotoXhr = null;
+  var fotoToken = 0;
+
+  // I browser recenti raddrizzano da soli le foto (EXIF), Safari 9 no.
+  // Si prova con un JPEG 2x1 marcato "ruotato di 90°": se torna 1x2 il browser ruota da solo.
+  var ruotaDaSolo = null;
+  (function () {
+    var img = new Image();
+    img.onload = function () { ruotaDaSolo = img.width === 1 && img.height === 2; };
+    img.onerror = function () { ruotaDaSolo = false; };
+    img.src = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4QAiRXhpZgAATU0AKgAAAAgAAQESAAMAAAABAAYAAAAAAAD/2wBDAFA3PEY8MlBGQUZaVVBfeMiCeG5uePWvuZHI////////////////////////////////////////////////////2wBDAVVaWnhpeOuCguv/////////////////////////////////////////////////////////////////////////wAARCAABAAIDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/ALQAf//Z';
+  })();
+
+  // Legge l'orientamento EXIF (1-8) dai primi byte del JPEG
+  function leggiOrientamento(buf) {
+    try {
+      var v = new DataView(buf);
+      if (v.getUint16(0) !== 0xFFD8) return 1;
+      var off = 2, len = v.byteLength;
+      while (off + 4 < len) {
+        var marker = v.getUint16(off);
+        if (marker === 0xFFE1) {
+          var start = off + 4;
+          if (v.getUint32(start) !== 0x45786966) return 1; // "Exif"
+          var tiff = start + 6;
+          var little = v.getUint16(tiff) === 0x4949;
+          var ifd = tiff + v.getUint32(tiff + 4, little);
+          var n = v.getUint16(ifd, little);
+          for (var i = 0; i < n; i++) {
+            var e = ifd + 2 + i * 12;
+            if (v.getUint16(e, little) === 0x0112) return v.getUint16(e + 8, little);
+          }
+          return 1;
+        }
+        if ((marker & 0xFF00) !== 0xFF00) return 1;
+        off += 2 + v.getUint16(off + 2);
+      }
+    } catch (err) { /* file non JPEG o troncato */ }
+    return 1;
+  }
+
+  // Riduce e raddrizza la foto, restituisce un JPEG in base64
+  function preparaFoto(file, cb) {
+    var reader = new FileReader();
+    reader.onerror = function () { cb('Impossibile leggere la foto'); };
+    reader.onload = function () {
+      var orient = ruotaDaSolo ? 1 : leggiOrientamento(reader.result);
+      var URLobj = window.URL || window.webkitURL;
+      var src = URLobj.createObjectURL(file);
+      var img = new Image();
+      img.onerror = function () { URLobj.revokeObjectURL(src); cb('Formato foto non supportato'); };
+      img.onload = function () {
+        var w = img.width, h = img.height;
+        var scala = Math.min(1, MAX_LATO / Math.max(w, h));
+        var dw = Math.round(w * scala), dh = Math.round(h * scala);
+        var giro = orient >= 5 && orient <= 8;
+        var canvas = document.createElement('canvas');
+        canvas.width = giro ? dh : dw;
+        canvas.height = giro ? dw : dh;
+        var ctx = canvas.getContext('2d');
+        switch (orient) {
+          case 2: ctx.transform(-1, 0, 0, 1, dw, 0); break;
+          case 3: ctx.transform(-1, 0, 0, -1, dw, dh); break;
+          case 4: ctx.transform(1, 0, 0, -1, 0, dh); break;
+          case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+          case 6: ctx.transform(0, 1, -1, 0, dh, 0); break;
+          case 7: ctx.transform(0, -1, -1, 0, dh, dw); break;
+          case 8: ctx.transform(0, -1, 1, 0, 0, dw); break;
+        }
+        ctx.drawImage(img, 0, 0, dw, dh);
+        URLobj.revokeObjectURL(src);
+        var dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        canvas.width = canvas.height = 0; // libera memoria
+        cb(null, dataUrl);
+      };
+      img.src = src;
+    };
+    // bastano i primi 128 KB per l'EXIF
+    reader.readAsArrayBuffer(file.slice ? file.slice(0, 131072) : file);
+  }
+
+  function fotoScelta(input) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (!backend) return toast('Attendi il caricamento del magazzino', true);
+    var token = ++fotoToken;
+    state.modal = { type: 'attesa' };
+    $('modal').innerHTML = '<div class="sheet"><h2>Riconoscimento prodotti</h2>' +
+      '<div class="foto-wait" id="foto-wait"><div class="spinner"></div><div id="foto-stato">Preparo la foto…</div></div>' +
+      '<div class="sheet-actions"><button class="btn" data-action="chiudi">Annulla</button></div></div>';
+    $('modal').className = '';
+
+    preparaFoto(file, function (err, dataUrl) {
+      input.value = '';
+      if (token !== fotoToken) return;
+      if (err) { chiudiModale(); return toast(err, true); }
+      $('foto-wait').insertAdjacentHTML('afterbegin', '<img class="foto-prev" src="' + dataUrl + '">');
+      $('foto-stato').textContent = 'Google Gemini sta riconoscendo i prodotti…';
+      var articoli = state.articoli.map(function (a) {
+        return { id: a.id, nome: a.nome, categoria: a.categoria, unita: a.unita };
+      });
+      fotoXhr = xhrJson('POST', 'api/riconosci', {
+        image: dataUrl, categorie: state.categorie, articoli: articoli
+      }, 90000, function (e2, data) {
+        fotoXhr = null;
+        if (token !== fotoToken) return;
+        if (e2) {
+          if (e2.status === 401 && e2.data && e2.data.pin) { chiudiModale(); return start(); }
+          var msg = e2.status === 404 ? 'Il riconoscimento foto non è disponibile su questo server' : e2.message;
+          $('foto-wait').innerHTML = '<div class="foto-err">' + esc(msg) + '</div>';
+          return;
+        }
+        mostraRisultato(data.prodotti || [], dataUrl);
+      });
+    });
+  }
+
+  function mostraRisultato(prodotti, dataUrl) {
+    state.modal = {
+      type: 'foto', tipo: 'carico', img: dataUrl,
+      righe: prodotti.map(function (p) {
+        return {
+          incl: true, nome: p.nome, categoria: p.categoria, unita: p.unita,
+          quantita: p.quantita, scelta: p.articolo_id != null ? String(p.articolo_id) : 'nuovo',
+          confidenza: p.confidenza, codice_barre: p.codice_barre
+        };
+      })
+    };
+    renderRisultato();
+  }
+
+  function renderRisultato() {
+    var m = state.modal, h = '';
+    h += '<div class="sheet sheet-wide"><div class="foto-head">' +
+      '<img class="foto-thumb" src="' + m.img + '">' +
+      '<div><h2>Prodotti riconosciuti</h2><div class="sub">Controlla e correggi prima di confermare</div>' +
+      '<div class="choices">' +
+      '<button class="chip' + (m.tipo === 'carico' ? ' on' : '') + '" data-action="f-tipo" data-v="carico">+ Carico</button>' +
+      '<button class="chip warn' + (m.tipo === 'scarico' ? ' on' : '') + '" data-action="f-tipo" data-v="scarico">− Scarico</button>' +
+      '</div></div></div>';
+
+    if (!m.righe.length) {
+      h += '<div class="empty">Nessun prodotto riconosciuto.<br>Prova con una foto più vicina e ben illuminata.</div>';
+    }
+    for (var i = 0; i < m.righe.length; i++) {
+      var r = m.righe[i], a = r.scelta !== 'nuovo' ? trovaArticolo(r.scelta) : null;
+      var opts = '<option value="nuovo"' + (a ? '' : ' selected') + '>➕ Nuovo articolo</option>';
+      for (var j = 0; j < state.articoli.length; j++) {
+        var x = state.articoli[j];
+        opts += '<option value="' + x.id + '"' + (a && a.id === x.id ? ' selected' : '') + '>' +
+          esc(x.nome) + ' (' + fmt(x.quantita) + ' ' + esc(x.unita) + ')</option>';
+      }
+      var info = (a ? 'In magazzino: ' + fmt(a.quantita) + ' ' + esc(a.unita) :
+        esc(nomeCategoria(r.categoria)) + ' · ' + esc(r.unita)) +
+        (r.confidenza ? ' · sicurezza ' + Math.round(r.confidenza * 100) + '%' : '') +
+        (r.codice_barre ? ' · EAN ' + esc(r.codice_barre) : '');
+      h += '<div class="frow' + (r.incl ? '' : ' off') + '">' +
+        '<button class="fcheck' + (r.incl ? ' on' : '') + '" data-action="f-incl" data-i="' + i + '">' + (r.incl ? '✓' : '') + '</button>' +
+        '<div class="frow-main">' +
+        '<div class="frow-ai">Visto: <b>' + esc(r.nome) + '</b></div>' +
+        '<select class="fsel" data-i="' + i + '">' + opts + '</select>' +
+        (a ? '' : '<input class="fnome" data-i="' + i + '" type="text" value="' + esc(r.nome) + '" placeholder="Nome nuovo articolo">') +
+        '<div class="frow-info">' + info + '</div></div>' +
+        '<div class="stepper">' +
+        '<button class="key" data-action="f-qta" data-i="' + i + '" data-d="-1">−</button>' +
+        '<div class="stepper-n" id="fq-' + i + '">' + fmt(r.quantita) + '</div>' +
+        '<button class="key" data-action="f-qta" data-i="' + i + '" data-d="1">+</button></div></div>';
+    }
+    h += '<div class="sheet-actions"><button class="btn" data-action="chiudi">Annulla</button>' +
+      (m.righe.length ? '<button class="btn ' + (m.tipo === 'carico' ? 'btn-in' : 'btn-out') + '" data-action="f-conferma">' +
+        (m.tipo === 'carico' ? 'Carica selezionati' : 'Scarica selezionati') + '</button>' : '') +
+      '</div></div>';
+    $('modal').innerHTML = h;
+  }
+
+  function confermaFoto() {
+    var m = state.modal;
+    var todo = m.righe.filter(function (r) { return r.incl && r.quantita > 0; });
+    if (!todo.length) return toast('Nessun prodotto selezionato', true);
+    for (var i = 0; i < todo.length; i++) {
+      if (todo[i].scelta === 'nuovo' && !String(todo[i].nome).replace(/\s+/g, '')) return toast('Dai un nome ai nuovi articoli', true);
+      if (m.tipo === 'scarico' && todo[i].scelta === 'nuovo') return toast('Non si può scaricare un articolo nuovo: scegli quello in magazzino', true);
+    }
+    occupato(true);
+    var ok = 0, errori = [], nota = 'Da foto';
+    function prossimo(k) {
+      if (k >= todo.length) {
+        occupato(false);
+        chiudiModale();
+        if (errori.length) toast(errori.join(' · '), true);
+        else toast((m.tipo === 'carico' ? 'Caricati ' : 'Scaricati ') + ok + ' prodotti');
+        return reload();
+      }
+      var r = todo[k];
+      function movimento(id) {
+        backend.movimento(id, m.tipo, r.quantita, nota, function (err) {
+          if (err) errori.push(r.nome + ': ' + err.message); else ok++;
+          prossimo(k + 1);
+        });
+      }
+      if (r.scelta !== 'nuovo') return movimento(Number(r.scelta));
+      backend.crea({ nome: r.nome.replace(/^\s+|\s+$/g, ''), categoria: r.categoria, unita: r.unita, scorta_minima: 0 },
+        function (err, art) {
+          if (err || !art) { errori.push(r.nome + ': ' + (err ? err.message : 'errore')); return prossimo(k + 1); }
+          movimento(art.id);
+        });
+    }
+    prossimo(0);
+  }
 
   /* ---------- eventi ---------- */
 
@@ -592,10 +812,35 @@
       case 'elimina': eliminaArticolo(); break;
       case 'chiudi': chiudiModale(); break;
       case 'riprova': start(); break;
+      case 'f-tipo': state.modal.tipo = el.getAttribute('data-v'); renderRisultato(); break;
+      case 'f-incl':
+        var ri = state.modal.righe[Number(el.getAttribute('data-i'))];
+        ri.incl = !ri.incl;
+        renderRisultato();
+        break;
+      case 'f-qta':
+        var rq = state.modal.righe[Number(el.getAttribute('data-i'))];
+        rq.quantita = Math.max(0, rq.quantita + Number(el.getAttribute('data-d')));
+        $('fq-' + el.getAttribute('data-i')).textContent = fmt(rq.quantita);
+        break;
+      case 'f-conferma': confermaFoto(); break;
+    }
+  }, false);
+
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.id === 'foto-input') return fotoScelta(t);
+    if (t.className === 'fsel' && state.modal && state.modal.type === 'foto') {
+      state.modal.righe[Number(t.getAttribute('data-i'))].scelta = t.value;
+      renderRisultato();
     }
   }, false);
 
   document.addEventListener('input', function (e) {
+    if (e.target && e.target.className === 'fnome' && state.modal && state.modal.righe) {
+      state.modal.righe[Number(e.target.getAttribute('data-i'))].nome = e.target.value;
+      return;
+    }
     if (e.target && e.target.id === 'cerca') {
       state.cerca = e.target.value;
       renderGriglia();

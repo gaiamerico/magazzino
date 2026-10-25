@@ -6,6 +6,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { forward } = require('./lib/forward');
+const { riconosci } = require('./lib/riconosci');
 
 // Carica .env (formato CHIAVE=valore) se presente
 const envFile = path.join(__dirname, '.env');
@@ -30,10 +31,10 @@ const TYPES = {
   '.json': 'application/json'
 };
 
-function readBody(req) {
+function readBody(req, limit) {
   return new Promise((resolve) => {
     let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 1e6) req.destroy(); });
+    req.on('data', (c) => { data += c; if (data.length > (limit || 1e6)) req.destroy(); });
     req.on('end', () => resolve(data));
   });
 }
@@ -48,6 +49,17 @@ const server = http.createServer(async (req, res) => {
       body: await readBody(req),
       pin: req.headers['x-app-pin']
     });
+    res.writeHead(result.status, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store'
+    });
+    return res.end(result.text);
+  }
+
+  if (url.pathname === '/api/riconosci') {
+    const result = req.method === 'POST'
+      ? await riconosci({ body: await readBody(req, 6e6), pin: req.headers['x-app-pin'] })
+      : { status: 405, text: JSON.stringify({ message: 'Usa POST' }) };
     res.writeHead(result.status, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store'
@@ -72,5 +84,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   const mode = process.env.SUPABASE_URL ? 'Supabase' : 'DEMO (Supabase non configurato)';
   console.log('Magazzino in ascolto su http://0.0.0.0:' + PORT + '  -  modalità: ' + mode +
-    (process.env.APP_PIN ? '  -  PIN attivo (' + String(process.env.APP_PIN).trim().length + ' cifre)' : '  -  nessun PIN'));
+    (process.env.APP_PIN ? '  -  PIN attivo (' + String(process.env.APP_PIN).trim().length + ' cifre)' : '  -  nessun PIN') +
+    (process.env.GEMINI_API_KEY ? '  -  foto: Gemini attivo' : '  -  foto: disattivate (manca GEMINI_API_KEY)'));
 });

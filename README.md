@@ -61,6 +61,31 @@ Se Home Assistant gira in Docker o in una VM, il server Node va avviato su macOS
 2. Tocca **Condividi → Aggiungi a Home**: l'app si aprirà a schermo intero come un'app nativa.
 3. Se hai impostato `APP_PIN`, l'iPad lo chiede la prima volta e poi lo ricorda.
 
+## Riconoscimento prodotti da foto (Google Gemini)
+
+Il pulsante **📷 Foto** apre la fotocamera dell'iPad (o la libreria foto). La foto viene ridotta a 1024 px e raddrizzata sull'iPad, poi inviata al server (`/api/riconosci`). Il server la passa all'API Gemini di Google insieme all'elenco degli articoli già in magazzino.
+
+Gemini restituisce i prodotti visti con nome, categoria, unità, quantità ed eventuale codice a barre, e prova ad abbinarli agli articoli esistenti. Prima di confermare puoi:
+
+- scegliere tra **Carico** e **Scarico**;
+- cambiare l'abbinamento: un articolo esistente oppure "Nuovo articolo" con nome modificabile;
+- correggere la quantità con − e +;
+- escludere una riga.
+
+I movimenti vengono registrati con la nota "Da foto".
+
+**Configurazione**
+
+1. Crea una chiave su https://aistudio.google.com → *Get API key*.
+2. Aggiungi `GEMINI_API_KEY=...` nel `.env` del Mac e nelle variabili di Vercel, poi riavvia il server o rifai il deploy.
+3. Facoltativo: `GEMINI_MODEL` per scegliere il modello. Il predefinito è `gemini-flash-latest`, l'alias di Google che punta sempre al modello Flash più recente.
+
+Note per iOS 9:
+
+- Safari 9 non permette l'inquadratura dal vivo, quindi si scatta una foto alla volta.
+- Per foto migliori scatta da vicino, con buona luce e con le etichette verso la fotocamera.
+- Ogni foto è una richiesta a Gemini: controlla limiti e costi su AI Studio.
+
 ## Controllo configurazione
 
 Apri `/api/proxy?p=stato` (es. `https://tuo-progetto.vercel.app/api/proxy?p=stato` oppure `http://nome-mac.local:3000/api/proxy?p=stato`). La pagina mostra, senza rivelare segreti:
@@ -68,6 +93,7 @@ Apri `/api/proxy?p=stato` (es. `https://tuo-progetto.vercel.app/api/proxy?p=stat
 - se `SUPABASE_URL` è impostato;
 - che tipo di chiave hai messo (serve `sb_secret_...` o `service_role`);
 - se il PIN è attivo e quanti caratteri ha;
+- se la chiave Gemini è impostata e quale modello è in uso;
 - il risultato di una prova di collegamento a Supabase.
 
 Su Vercel, dopo aver cambiato una variabile, serve un nuovo deploy (Deployments → ⋯ → Redeploy).
