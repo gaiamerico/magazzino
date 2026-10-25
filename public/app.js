@@ -96,13 +96,21 @@
     var pin = memPin || storeGet('pin');
     if (pin) xhr.setRequestHeader('X-App-Pin', pin);
     xhr.timeout = timeout;
+    var scaduto = false;
+    xhr.ontimeout = function () { scaduto = true; };
+    var t0 = Date.now();
     xhr.onreadystatechange = function () {
       if (xhr.readyState !== 4) return;
+      // l'evento "timeout" arriva dopo questo: lo si riconosce dal tempo trascorso
+      if (xhr.status === 0 && Date.now() - t0 >= timeout - 500) scaduto = true;
       var data = null;
       try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch (e) { data = null; }
       if (xhr.status >= 200 && xhr.status < 300) return cb(null, data);
       var msg = (data && (data.message || data.hint || data.error)) ||
-        (xhr.status === 0 ? 'Server non raggiungibile' : 'Errore ' + xhr.status);
+        (xhr.status === 0 ? (scaduto ? 'Il server non ha risposto in tempo (' + Math.round(timeout / 1000) + ' s)' :
+          'Server non raggiungibile (' + url.split('?')[0] + '): controlla che il server sia acceso e la rete Wi-Fi') :
+          xhr.status === 413 ? 'Foto troppo grande per il server' :
+          xhr.status === 504 ? 'Il server ha impiegato troppo tempo, riprova' : 'Errore ' + xhr.status);
       cb({ status: xhr.status, message: msg, data: data });
     };
     xhr.send(body ? JSON.stringify(body) : null);

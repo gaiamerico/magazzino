@@ -33,41 +33,61 @@ const TYPES = {
 
 function readBody(req, limit) {
   return new Promise((resolve) => {
-    let data = '';
-    req.on('data', (c) => { data += c; if (data.length > (limit || 1e6)) req.destroy(); });
-    req.on('end', () => resolve(data));
+    let data = '', troppo = false;
+    req.on('data', (c) => { if (!troppo) { data += c; if (data.length > (limit || 1e6)) troppo = true; } });
+    req.on('end', () => resolve(troppo ? null : data));
+    req.on('error', () => resolve(null));
   });
 }
 
-const server = http.createServer(async (req, res) => {
+function inviaJson(res, result) {
+  if (res.headersSent) return;
+  res.writeHead(result.status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store'
+  });
+  res.end(result.text);
+}
+
+// Un errore imprevisto non deve mai spegnere il server
+process.on('unhandledRejection', (err) => console.error(new Date().toISOString(), 'Errore:', err));
+process.on('uncaughtException', (err) => console.error(new Date().toISOString(), 'Errore:', err));
+
+const server = http.createServer((req, res) => {
+  gestisci(req, res).catch((err) => {
+    console.error(new Date().toISOString(), req.method, req.url, err);
+    inviaJson(res, { status: 500, text: JSON.stringify({ message: 'Errore interno del server: ' + err.message }) });
+  });
+});
+
+async function gestisci(req, res) {
   const url = new URL(req.url, 'http://localhost');
+  console.log(new Date().toISOString(), req.method, url.pathname);
 
   if (url.pathname === '/api/proxy') {
-    const result = await forward({
+    const body = await readBody(req, 1e6);
+    if (body === null) return inviaJson(res, { status: 413, text: JSON.stringify({ message: 'Richiesta troppo grande' }) });
+    return inviaJson(res, await forward({
       method: req.method,
       path: url.searchParams.get('p'),
-      body: await readBody(req),
+      body,
       pin: req.headers['x-app-pin']
-    });
-    res.writeHead(result.status, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store'
-    });
-    return res.end(result.text);
+    }));
   }
 
   if (url.pathname === '/api/riconosci') {
-    const result = req.method === 'POST'
-      ? await riconosci({ body: await readBody(req, 6e6), pin: req.headers['x-app-pin'] })
-      : { status: 405, text: JSON.stringify({ message: 'Usa POST' }) };
-    res.writeHead(result.status, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store'
-    });
-    return res.end(result.text);
+    if (req.method !== 'POST') return inviaJson(res, { status: 405, text: JSON.stringify({ message: 'Usa POST' }) });
+    const body = await readBody(req, 8e6);
+    if (body === null) return inviaJson(res, { status: 413, text: JSON.stringify({ message: 'Foto troppo grande' }) });
+    const t0 = Date.now();
+    const result = await riconosci({ body, pin: req.headers['x-app-pin'] });
+    console.log('  riconoscimento: ' + result.status + ' in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s');
+    return inviaJson(res, result);
   }
 
-  let file = path.normalize(path.join(ROOT, decodeURIComponent(url.pathname)));
+  let rel;
+  try { rel = decodeURIComponent(url.pathname); } catch (e) { rel = '/'; }
+  let file = path.normalize(path.join(ROOT, rel));
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
   if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
 
@@ -79,7 +99,7 @@ const server = http.createServer(async (req, res) => {
     });
     res.end(data);
   });
-});
+}
 
 server.listen(PORT, '0.0.0.0', () => {
   const mode = process.env.SUPABASE_URL ? 'Supabase' : 'DEMO (Supabase non configurato)';
